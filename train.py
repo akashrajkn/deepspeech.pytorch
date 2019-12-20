@@ -4,12 +4,15 @@ import os
 import random
 import time
 
+import torch.nn as nn
+import torch.nn.functional as F
+
 import numpy as np
-import torch.distributed as dist
-import torch.utils.data.distributed
-from apex import amp
-from apex.parallel import DistributedDataParallel
-from warpctc_pytorch import CTCLoss
+# import torch.distributed as dist
+# import torch.utils.data.distributed
+# from apex import amp
+# from apex.parallel import DistributedDataParallel
+# from warpctc_pytorch import CTCLoss
 
 from data.data_loader import AudioDataLoader, SpectrogramDataset, BucketingSampler, DistributedBucketingSampler
 from decoder import GreedyDecoder
@@ -209,16 +212,16 @@ if __name__ == '__main__':
     if optim_state is not None:
         optimizer.load_state_dict(optim_state)
 
-    model, optimizer = amp.initialize(model, optimizer,
-                                      opt_level=args.opt_level,
-                                      keep_batchnorm_fp32=args.keep_batchnorm_fp32,
-                                      loss_scale=args.loss_scale)
+#     model, optimizer = amp.initialize(model, optimizer,
+#                                       opt_level=args.opt_level,
+#                                       keep_batchnorm_fp32=args.keep_batchnorm_fp32,
+#                                       loss_scale=args.loss_scale)
     if args.distributed:
         model = DistributedDataParallel(model)
     print(model)
     print("Number of parameters: %d" % DeepSpeech.get_param_size(model))
 
-    criterion = CTCLoss()
+    criterion = nn.CTCLoss()
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -240,7 +243,7 @@ if __name__ == '__main__':
             out = out.transpose(0, 1)  # TxNxH
 
             float_out = out.float()  # ensure float32 for loss
-            loss = criterion(float_out, targets, output_sizes, target_sizes).to(device)
+            loss = criterion(F.log_softmax(float_out, dim=-1), targets, output_sizes, target_sizes).to(device)
             loss = loss / inputs.size(0)  # average the loss by minibatch
 
             if args.distributed:
@@ -255,8 +258,9 @@ if __name__ == '__main__':
                 optimizer.zero_grad()
                 # compute gradient
 
-                with amp.scale_loss(loss, optimizer) as scaled_loss:
-                    scaled_loss.backward()
+#                 with amp.scale_loss(loss, optimizer) as scaled_loss:
+#                     scaled_loss.backward()
+                loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_norm)
                 optimizer.step()
             else:
